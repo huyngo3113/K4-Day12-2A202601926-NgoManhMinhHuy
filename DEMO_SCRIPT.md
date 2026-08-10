@@ -11,6 +11,7 @@
 ## Giai đoạn 0 — Chuẩn bị
 
 **Input:**
+
 ```bash
 cd K4-Day12-Cloud-Services-And-Deployment
 cp .env.example .env          # rồi điền API_TOKEN riêng
@@ -19,6 +20,7 @@ docker compose ps
 ```
 
 **Output mong đợi:**
+
 ```
 NAME                                              STATUS
 k4-day12-cloud-services-and-deployment-redis-1    Up (healthy)
@@ -35,11 +37,13 @@ chưa liên quan tới code chính.
 ### 1.1 Fail fast khi thiếu secret
 
 **Input:**
+
 ```bash
 API_TOKEN= uvicorn app.main:app --port 8000   # cố tình bỏ trống API_TOKEN
 ```
 
 **Output mong đợi:**
+
 ```
 pydantic_core._pydantic_core.ValidationError: 1 validation error for Settings
 api_token
@@ -53,18 +57,21 @@ thay vì âm thầm chạy với giá trị mặc định nguy hiểm.
 ### 1.2 Health check + structured log
 
 **Input:**
+
 ```bash
 uvicorn app.main:app --port 8000 &
 curl -i http://localhost:8000/healthz
 ```
 
 **Output mong đợi:**
+
 ```
 HTTP/1.1 200 OK
 {"status":"ok","service":"day12-chat-service","version":"1.0.0"}
 ```
 
 Log ra stdout cùng lúc:
+
 ```json
 {"event": "service_started", "severity": "INFO", "ts": "...", "service": "day12-chat-service", "version": "1.0.0"}
 ```
@@ -81,6 +88,7 @@ máy đọc được, không phải log cho người.
 ### 2.1 So sánh kích thước image
 
 **Input:** (tạo tạm 1 Dockerfile 1-stage để đối chứng, không nằm trong repo)
+
 ```bash
 cat > Dockerfile.single <<'EOF'
 FROM python:3.11
@@ -95,6 +103,7 @@ docker images | grep chat
 ```
 
 **Output thực đo:**
+
 ```
 chat:single   1.73 GB
 chat:multi    270 MB
@@ -107,6 +116,7 @@ hay cache pip. Giảm ~1.46GB — deploy nhanh hơn, kéo image nhanh hơn.
 ### 2.2 Chạy container, kiểm tra không phải root
 
 **Input:**
+
 ```bash
 docker run -d --name demo-chat -p 8000:8000 \
   -e API_TOKEN=$API_TOKEN -e REDIS_URL=fake:// chat:multi
@@ -114,6 +124,7 @@ docker exec demo-chat whoami
 ```
 
 **Output mong đợi:**
+
 ```
 appuser
 ```
@@ -129,25 +140,27 @@ không phải root.
 ### 3.1 Không có token
 
 **Input:**
+
 ```bash
 curl -i -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" -d '{"message":"Hello"}'
 ```
 
 **Output mong đợi:**
+
 ```
 HTTP/1.1 401 Unauthorized
 www-authenticate: Bearer
 {"detail":"invalid or missing bearer token"}
 ```
 
-**Giải thích:** Thiếu header `Authorization` → 401 kèm `WWW-Authenticate:
-Bearer` theo RFC 6750. Cùng thông báo lỗi này dùng chung cho cả sai scheme,
+**Giải thích:** Thiếu header `Authorization` → 401 kèm `WWW-Authenticate: Bearer` theo RFC 6750. Cùng thông báo lỗi này dùng chung cho cả sai scheme,
 sai token — không lộ thông tin cho người đang dò.
 
 ### 3.2 Có token hợp lệ
 
 **Input:**
+
 ```bash
 curl -s -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
@@ -156,6 +169,7 @@ curl -s -X POST http://localhost:8000/chat \
 ```
 
 **Output mong đợi:**
+
 ```json
 {"reply":"...", "client_id":"demo01", "turns_before":0,
  "usd_cost":0.0000384, "usage":{"prompt":3,"completion":41}}
@@ -168,6 +182,7 @@ lấy lịch sử → gọi mock LLM → ghi lịch sử → ghi chi phí → lo
 ### 3.3 Vượt rate limit (token bucket)
 
 **Input:**
+
 ```bash
 for i in $(seq 1 15); do
   curl -s -o /dev/null -w "%{http_code} " -X POST http://localhost:8000/chat \
@@ -178,6 +193,7 @@ done; echo
 ```
 
 **Output thực đo:**
+
 ```
 200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
 ```
@@ -193,6 +209,7 @@ sau bị `429` kèm header `Retry-After`. Xô không cho phép "bùng" quá
 ### 4.1 Stateless — lịch sử dùng chung qua nhiều container
 
 **Input:**
+
 ```bash
 docker compose up -d --scale chat=3
 for i in $(seq 1 5); do
@@ -204,6 +221,7 @@ done
 ```
 
 **Output mong đợi:**
+
 ```
 0
 2
@@ -219,6 +237,7 @@ không nằm trong RAM của từng container.
 ### 4.2 `/readyz` phản ánh đúng trạng thái Redis
 
 **Input:**
+
 ```bash
 curl -i http://localhost:8000/readyz          # Redis đang sống
 docker compose stop redis
@@ -227,6 +246,7 @@ docker compose start redis
 ```
 
 **Output mong đợi:**
+
 ```
 # Redis sống
 HTTP/1.1 200 OK
@@ -245,27 +265,48 @@ không phải restart — tránh biến sự cố Redis nhỏ thành cả cụm 
 ### 4.3 Graceful shutdown (draining)
 
 **Input:**
+
 ```bash
-docker compose exec chat sh -c 'kill -TERM 1'   # gửi SIGTERM vào container
-curl -i http://localhost:8000/healthz            # gọi ngay sau đó
+docker kill -s SIGTERM day12-live   # gửi SIGTERM vào container qua Docker
+docker logs day12-live --tail 5
 ```
 
 **Output mong đợi:**
+
 ```
-HTTP/1.1 503 Service Unavailable
-{"status":"draining"}
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+{"event": "service_stopped", "severity": "INFO", ...}
 ```
 
-**Giải thích:** Nhận SIGTERM → `shutdown_guard.draining = True` →
-`/healthz` báo 503 ngay lập tức → load balancer ngừng gửi traffic mới, trong
-khi uvicorn (được nhường lại quyền xử lý tín hiệu) vẫn hoàn tất các request
-đang chạy dở rồi mới thoát.
+**Giải thích:** Nhận SIGTERM → `shutdown_guard.start_draining()` bật cờ
+`draining = True` (khiến `/healthz`/`/readyz` báo 503 ngay lập tức cho load
+balancer biết ngừng gửi traffic mới) → **nhường lại** cho handler cũ của
+uvicorn → uvicorn hoàn tất request đang chạy dở rồi thoát sạch.
+
+> **Bug thật gặp khi demo, đã sửa:** lúc đầu dùng `docker compose exec chat
+> sh -c 'kill -TERM 1'` để gửi tín hiệu **từ trong** container — không có
+> tác dụng gì, `/healthz` vẫn 200 mãi. Kiểm tra `docker top <container>` lộ
+> ra nguyên nhân: `CMD ["sh", "-c", "uvicorn ..."]` khiến `sh` là **PID 1**,
+> `uvicorn` chỉ là tiến trình con — gửi SIGTERM vào PID 1 giết `sh`, không
+> chạm tới `uvicorn` (`sh` không tự forward tín hiệu cho con). Container vẫn
+> "Up (healthy)" y như chưa có gì xảy ra. Sửa bằng cách thêm `exec` vào lệnh
+> shell trong `Dockerfile`:
+> ```dockerfile
+> CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+> ```
+> `exec` khiến `uvicorn` **thay thế** tiến trình `sh` thay vì chạy như con —
+> `docker top` sau khi build lại chỉ còn đúng một tiến trình `uvicorn`,
+> chính nó là PID 1, nhận SIGTERM trực tiếp và tắt sạch (log
+> `Shutting down` → `service_stopped` xuất hiện ngay).
 
 ---
 
 ## Giai đoạn 5 — Cloud Deployment thật (CP5)
 
 **Input:**
+
 ```bash
 URL=https://chat-production-c335.up.railway.app
 
@@ -278,6 +319,7 @@ curl -s -X POST $URL/chat -H "Content-Type: application/json" \
 ```
 
 **Output thực đo:**
+
 ```
 GET /healthz  → 200 {"status":"ok",...}
 GET /readyz   → 200 {"status":"ready","redis":true}
@@ -292,6 +334,7 @@ trường công khai — không chỉ trên máy local.
 ### Sự cố thật gặp lúc deploy (đáng nói khi demo)
 
 **Input (log lỗi ban đầu):**
+
 ```
 Error: Invalid value for '--port': '$PORT' is not a valid integer.
 ```
@@ -307,10 +350,10 @@ sẵn `sh -c "... --port ${PORT:-8000}"`). Deploy lại → chạy đúng port �
 
 ## Tổng kết khi demo
 
-| Giai đoạn | Chứng minh điều gì |
-|-----------|---------------------|
-| CP1 | Config ngoài code, log máy đọc được, health check nhẹ |
-| CP2 | Image nhỏ, không root, cache layer đúng thứ tự |
-| CP3 | 3 lớp bảo vệ: auth → rate limit → cost guard, đúng thứ tự trước khi tốn tiền LLM |
-| CP4 | Stateless qua Redis, readyz/healthz tách biệt, graceful shutdown |
-| CP5 | Chạy thật trên cloud, có domain HTTPS công khai, tự vá được lỗi deploy thực tế |
+| Giai đoạn | Chứng minh điều gì                                                                        |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| CP1         | Config ngoài code, log máy đọc được, health check nhẹ                                 |
+| CP2         | Image nhỏ, không root, cache layer đúng thứ tự                                          |
+| CP3         | 3 lớp bảo vệ: auth → rate limit → cost guard, đúng thứ tự trước khi tốn tiền LLM |
+| CP4         | Stateless qua Redis, readyz/healthz tách biệt, graceful shutdown                            |
+| CP5         | Chạy thật trên cloud, có domain HTTPS công khai, tự vá được lỗi deploy thực tế   |
