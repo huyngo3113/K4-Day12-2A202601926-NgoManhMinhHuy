@@ -4,3 +4,18 @@
 
 .git
 .gitignore
+.env
+.env.*
+!.env.example
+__pycache__
+**/__pycache__
+*.pyc
+.venv
+venv
+.pytest_cache
+tests
+screenshots
+*.md
+.dockerignore
+Dockerfile
+docker-compose.yml

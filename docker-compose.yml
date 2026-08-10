@@ -34,10 +34,24 @@ services:
       timeout: 3s
       retries: 5
 
-  # TODO (CP2): khai báo service `chat` ở đây
-  # chat:
-  #   build: .
-  #   ...
+  chat:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      API_TOKEN: ${API_TOKEN}
+      REDIS_URL: redis://redis:6379/0
+      BUCKET_CAPACITY: ${BUCKET_CAPACITY:-10}
+      REFILL_PER_MINUTE: ${REFILL_PER_MINUTE:-10}
+      DAILY_BUDGET_USD: ${DAILY_BUDGET_USD:-1.0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   redis-data:
